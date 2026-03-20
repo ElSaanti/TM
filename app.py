@@ -19,38 +19,21 @@ st.markdown("""
         color: #6b7280;
         margin-bottom: 1rem;
     }
-    .info-box {
-        padding: 14px;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.10);
-        background-color: rgba(255,255,255,0.03);
-        margin-bottom: 1rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">Reconocimiento de Imágenes con Teachable Machine</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Esta versión usa el modelo web exportado desde Teachable Machine con model.json y metadata.json.</div>',
+    '<div class="subtitle">Esta versión usa el modelo web exportado desde Teachable Machine</div>',
     unsafe_allow_html=True
 )
 
 st.write("Versión de Python:", platform.python_version())
 
-st.markdown("""
-<div class="info-box">
-    <strong>Importante:</strong> la carpeta <code>my_model</code> debe contener:
-    <ul>
-        <li><code>model.json</code></li>
-        <li><code>metadata.json</code></li>
-        <li>los archivos <code>.bin</code> del modelo</li>
-    </ul>
-</div>
-""", unsafe_allow_html=True)
-
 teachable_html = """
 <div style="text-align:center; font-family: Arial, sans-serif;">
     <h3 style="margin-bottom: 10px;">Teachable Machine Image Model</h3>
+
     <button 
         type="button" 
         onclick="init()" 
@@ -126,7 +109,7 @@ teachable_html = """
                 labelContainer.appendChild(row);
             }
 
-            document.getElementById("status").innerHTML = "Cámara activa. El modelo está clasificando en tiempo real.";
+            document.getElementById("status").innerHTML = "Cámara activa";
         } catch (error) {
             document.getElementById("status").innerHTML = "Error al cargar el modelo o activar la cámara.";
             console.error(error);
@@ -134,6 +117,7 @@ teachable_html = """
     }
 
     async function loop() {
+        if (!webcam) return;
         webcam.update();
         await predict();
         window.requestAnimationFrame(loop);
@@ -141,8 +125,6 @@ teachable_html = """
 
     async function predict() {
         const prediction = await model.predict(webcam.canvas);
-
-        // Ordenar predicciones de mayor a menor
         prediction.sort((a, b) => b.probability - a.probability);
 
         for (let i = 0; i < maxPredictions; i++) {
@@ -151,7 +133,6 @@ teachable_html = """
 
             labelContainer.childNodes[i].innerHTML = classPrediction;
 
-            // pequeña mejora visual: resaltar la clase más probable
             if (i === 0) {
                 labelContainer.childNodes[i].style.background = "#dbeafe";
                 labelContainer.childNodes[i].style.border = "1px solid #93c5fd";
@@ -164,6 +145,4 @@ teachable_html = """
 </script>
 """
 
-components.html(teachable_html, height=650)
-
-st.caption("Asegúrate de ejecutar la app en un entorno donde la carpeta my_model sea accesible junto al proyecto.")
+components.html(teachable_html, height=560)
