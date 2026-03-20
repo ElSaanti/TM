@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image, ImageOps
 from keras.models import load_model
 import platform
+import os
 
 st.set_page_config(
     page_title="Reconocimiento de Imágenes",
@@ -10,7 +11,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# Estilo visual ligero
 st.markdown("""
 <style>
     .main-title {
@@ -32,20 +32,23 @@ st.markdown("""
         margin-top: 1rem;
         margin-bottom: 1rem;
     }
-    .small-text {
-        color: #6b7280;
-        font-size: 0.95rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
+MODEL_PATH = "keras_model.h5"
+LABELS_PATH = "labels.txt"
+
 @st.cache_resource
 def cargar_modelo():
-    return load_model("keras_Model.h5", compile=False)
+    if not os.path.exists(MODEL_PATH):
+        raise FileNotFoundError(f"No se encontró el archivo del modelo: {MODEL_PATH}")
+    return load_model(MODEL_PATH, compile=False)
 
 @st.cache_data
 def cargar_etiquetas():
-    with open("labels.txt", "r", encoding="utf-8") as f:
+    if not os.path.exists(LABELS_PATH):
+        raise FileNotFoundError(f"No se encontró el archivo de etiquetas: {LABELS_PATH}")
+    with open(LABELS_PATH, "r", encoding="utf-8") as f:
         return f.readlines()
 
 def preparar_imagen(imagen):
@@ -69,7 +72,7 @@ def limpiar_nombre_clase(texto):
 
 st.markdown('<div class="main-title">Reconocimiento de Imágenes con Teachable Machine</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Esta versión usa la cámara normal de Streamlit con tu modelo exportado desde Teachable Machine.</div>',
+    '<div class="subtitle">Esta versión usa la cámara normal de Streamlit.</div>',
     unsafe_allow_html=True
 )
 
@@ -81,12 +84,6 @@ try:
 except Exception as e:
     st.error(f"Error cargando el modelo o las etiquetas: {e}")
     st.stop()
-
-with st.sidebar:
-    st.subheader("Información")
-    st.write("Toma una foto para clasificarla con el modelo.")
-    st.markdown("---")
-    st.write("Modelo cargado correctamente.")
 
 img_file_buffer = st.camera_input("Toma una foto")
 
@@ -134,9 +131,3 @@ if img_file_buffer is not None:
 
     except Exception as e:
         st.error(f"Error procesando la imagen: {e}")
-
-else:
-    st.markdown(
-        '<p class="small-text">Toma una foto para ver la predicción del modelo.</p>',
-        unsafe_allow_html=True
-    )
