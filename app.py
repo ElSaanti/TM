@@ -11,66 +11,28 @@ st.set_page_config(
     layout="centered"
 )
 
-# ---------- estilo ----------
-st.markdown("""
-<style>
-.main-title {
-    font-size: 2.3rem;
-    font-weight: 700;
-    text-align: center;
-}
-
-.result-box {
-    padding: 20px;
-    border-radius: 14px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background-color: rgba(255,255,255,0.05);
-    text-align: center;
-    font-size: 1.4rem;
-    margin-top: 10px;
-}
-.arriba {
-    color: #22c55e;
-    font-weight: bold;
-}
-.abajo {
-    color: #ef4444;
-    font-weight: bold;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
 MODEL_PATH = "keras_model.h5"
 LABELS_PATH = "labels.txt"
 
-
-# ---------- cargar modelo ----------
-@st.cache_resource
 def cargar_modelo():
     if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError("No se encontró keras_model.h5")
+        raise FileNotFoundError(f"No se encontró {MODEL_PATH}")
     return load_model(MODEL_PATH, compile=False)
 
-
-@st.cache_data
 def cargar_etiquetas():
     if not os.path.exists(LABELS_PATH):
-        raise FileNotFoundError("No se encontró labels.txt")
+        raise FileNotFoundError(f"No se encontró {LABELS_PATH}")
     with open(LABELS_PATH, "r", encoding="utf-8") as f:
-        return f.readlines()
+        return [line.strip() for line in f.readlines()]
 
-
-def limpiar(texto):
+def limpiar_nombre_clase(texto):
     texto = texto.strip()
-    if len(texto) > 2:
+    if len(texto) > 2 and texto[0].isdigit() and texto[1] == " ":
         return texto[2:]
     return texto
 
-
 def preparar_imagen(imagen):
     size = (224, 224)
-
     imagen = imagen.convert("RGB")
     imagen = ImageOps.fit(imagen, size, Image.Resampling.LANCZOS)
 
@@ -79,82 +41,57 @@ def preparar_imagen(imagen):
 
     data = np.ndarray((1, 224, 224, 3), dtype=np.float32)
     data[0] = normalized_image_array
-
     return imagen, data
 
-
-# ---------- UI ----------
-st.markdown('<div class="main-title">Detector de dedo Arriba / Abajo</div>', unsafe_allow_html=True)
-
-st.write("Python:", platform.python_version())
+st.title("Detector Arriba / Abajo")
+st.write("Versión de Python:", platform.python_version())
 
 try:
     model = cargar_modelo()
     class_names = cargar_etiquetas()
+    clases_limpias = [limpiar_nombre_clase(c) for c in class_names]
 except Exception as e:
-    st.error(e)
+    st.error(f"Error cargando archivos: {e}")
     st.stop()
 
+st.subheader("Diagnóstico")
+st.write("Ruta del modelo:", os.path.abspath(MODEL_PATH))
+st.write("Ruta de labels:", os.path.abspath(LABELS_PATH))
+st.write("Etiquetas cargadas:", clases_limpias)
+st.write("Salida del modelo:", model.output_shape)
 
-# ---------- cámara ----------
 img_file = st.camera_input("Toma una foto")
 
 if img_file is not None:
-
     imagen_original = Image.open(img_file)
-
     imagen_procesada, data = preparar_imagen(imagen_original)
 
-    prediction = model.predict(data, verbose=0)
+    prediction = model.predict(data, verbose=0)[0]
 
-    index = np.argmax(prediction)
+    # Protección por si el modelo y el labels no coinciden
+    n_modelo = len(prediction)
+    n_labels = len(clases_limpias)
 
-    clase = limpiar(class_names[index])
+    if n_modelo != n_labels:
+        st.error(f"El modelo tiene {n_modelo} salidas, pero labels.txt tiene {n_labels} etiquetas.")
+        st.stop()
 
-    confianza = float(prediction[0][index])
+    index = int(np.argmax(prediction))
+    clase = clases_limpias[index]
+    confianza = float(prediction[index])
 
     col1, col2 = st.columns(2)
-
     with col1:
-        st.image(imagen_original, caption="Imagen", use_container_width=True)
-
+        st.image(imagen_original, caption="Imagen capturada", use_container_width=True)
     with col2:
         st.image(imagen_procesada, caption="Procesada", use_container_width=True)
 
-    # ---------- resultado grande ----------
-    if clase.lower() == "arriba":
+    st.subheader("Resultado principal")
+    st.write(f"Clase detectada: **{clase}**")
+    st.write(f"Confianza: **{confianza:.2%}**")
 
-        st.markdown(
-            f"""
-            <div class="result-box">
-                ☝️ Detectado: <span class="arriba">ARRIBA</span><br>
-                Confianza: {confianza:.2%}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    elif clase.lower() == "abajo":
-
-        st.markdown(
-            f"""
-            <div class="result-box">
-                👇 Detectado: <span class="abajo">ABAJO</span><br>
-                Confianza: {confianza:.2%}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    # ---------- barras ----------
     st.subheader("Probabilidades")
-
-    for i, prob in enumerate(prediction[0]):
-
-        nombre = limpiar(class_names[i])
-
-        st.write(nombre)
-
+    for i, prob in enumerate(prediction):
+        st.write(clases_limpias[i])
         st.progress(float(prob))
-
         st.caption(f"{float(prob):.2%}")
