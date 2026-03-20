@@ -6,128 +6,155 @@ import platform
 import os
 
 st.set_page_config(
-    page_title="Reconocimiento de Imágenes",
-    page_icon="📷",
+    page_title="Detector Arriba / Abajo",
+    page_icon="☝️",
     layout="centered"
 )
 
+# ---------- estilo ----------
 st.markdown("""
 <style>
-    .main-title {
-        font-size: 2.2rem;
-        font-weight: 700;
-        margin-bottom: 0.2rem;
-        text-align: center;
-    }
-    .subtitle {
-        color: #6b7280;
-        text-align: center;
-        margin-bottom: 1.5rem;
-    }
-    .result-box {
-        padding: 16px;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.10);
-        background-color: rgba(255,255,255,0.03);
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-    }
+.main-title {
+    font-size: 2.3rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.result-box {
+    padding: 20px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background-color: rgba(255,255,255,0.05);
+    text-align: center;
+    font-size: 1.4rem;
+    margin-top: 10px;
+}
+.arriba {
+    color: #22c55e;
+    font-weight: bold;
+}
+.abajo {
+    color: #ef4444;
+    font-weight: bold;
+}
 </style>
 """, unsafe_allow_html=True)
+
 
 MODEL_PATH = "keras_model.h5"
 LABELS_PATH = "labels.txt"
 
+
+# ---------- cargar modelo ----------
 @st.cache_resource
 def cargar_modelo():
     if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"No se encontró el archivo del modelo: {MODEL_PATH}")
+        raise FileNotFoundError("No se encontró keras_model.h5")
     return load_model(MODEL_PATH, compile=False)
+
 
 @st.cache_data
 def cargar_etiquetas():
     if not os.path.exists(LABELS_PATH):
-        raise FileNotFoundError(f"No se encontró el archivo de etiquetas: {LABELS_PATH}")
+        raise FileNotFoundError("No se encontró labels.txt")
     with open(LABELS_PATH, "r", encoding="utf-8") as f:
         return f.readlines()
 
+
+def limpiar(texto):
+    texto = texto.strip()
+    if len(texto) > 2:
+        return texto[2:]
+    return texto
+
+
 def preparar_imagen(imagen):
     size = (224, 224)
+
     imagen = imagen.convert("RGB")
     imagen = ImageOps.fit(imagen, size, Image.Resampling.LANCZOS)
 
     image_array = np.asarray(imagen)
     normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
 
-    data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
+    data = np.ndarray((1, 224, 224, 3), dtype=np.float32)
     data[0] = normalized_image_array
 
     return imagen, data
 
-def limpiar_nombre_clase(texto):
-    texto = texto.strip()
-    if len(texto) > 2 and texto[0].isdigit() and texto[1] == " ":
-        return texto[2:]
-    return texto
 
-st.markdown('<div class="main-title">Reconocimiento de Imágenes con Teachable Machine</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="subtitle">Esta versión usa la cámara normal de Streamlit.</div>',
-    unsafe_allow_html=True
-)
+# ---------- UI ----------
+st.markdown('<div class="main-title">Detector de dedo Arriba / Abajo</div>', unsafe_allow_html=True)
 
-st.write("Versión de Python:", platform.python_version())
+st.write("Python:", platform.python_version())
 
 try:
     model = cargar_modelo()
     class_names = cargar_etiquetas()
 except Exception as e:
-    st.error(f"Error cargando el modelo o las etiquetas: {e}")
+    st.error(e)
     st.stop()
 
-img_file_buffer = st.camera_input("Toma una foto")
 
-if img_file_buffer is not None:
-    try:
-        imagen_original = Image.open(img_file_buffer)
-        imagen_procesada, data = preparar_imagen(imagen_original)
+# ---------- cámara ----------
+img_file = st.camera_input("Toma una foto")
 
-        prediction = model.predict(data, verbose=0)
-        index = np.argmax(prediction)
-        class_name = limpiar_nombre_clase(class_names[index])
-        confidence_score = float(prediction[0][index])
+if img_file is not None:
 
-        col1, col2 = st.columns(2)
+    imagen_original = Image.open(img_file)
 
-        with col1:
-            st.subheader("Imagen capturada")
-            st.image(imagen_original, use_container_width=True)
+    imagen_procesada, data = preparar_imagen(imagen_original)
 
-        with col2:
-            st.subheader("Imagen procesada")
-            st.image(imagen_procesada, use_container_width=True)
+    prediction = model.predict(data, verbose=0)
+
+    index = np.argmax(prediction)
+
+    clase = limpiar(class_names[index])
+
+    confianza = float(prediction[0][index])
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.image(imagen_original, caption="Imagen", use_container_width=True)
+
+    with col2:
+        st.image(imagen_procesada, caption="Procesada", use_container_width=True)
+
+    # ---------- resultado grande ----------
+    if clase.lower() == "arriba":
 
         st.markdown(
             f"""
             <div class="result-box">
-                <h3 style="margin-top:0;">Resultado principal</h3>
-                <p><strong>Clase detectada:</strong> {class_name}</p>
-                <p><strong>Confianza:</strong> {confidence_score:.2%}</p>
+                ☝️ Detectado: <span class="arriba">ARRIBA</span><br>
+                Confianza: {confianza:.2%}
             </div>
             """,
             unsafe_allow_html=True
         )
 
-        st.subheader("Probabilidades")
-        predicciones = prediction[0]
-        top_indices = np.argsort(predicciones)[::-1]
+    elif clase.lower() == "abajo":
 
-        for i in top_indices:
-            nombre = limpiar_nombre_clase(class_names[i])
-            prob = float(predicciones[i])
-            st.write(f"**{nombre}**")
-            st.progress(min(max(prob, 0.0), 1.0))
-            st.caption(f"{prob:.2%}")
+        st.markdown(
+            f"""
+            <div class="result-box">
+                👇 Detectado: <span class="abajo">ABAJO</span><br>
+                Confianza: {confianza:.2%}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-    except Exception as e:
-        st.error(f"Error procesando la imagen: {e}")
+    # ---------- barras ----------
+    st.subheader("Probabilidades")
+
+    for i, prob in enumerate(prediction[0]):
+
+        nombre = limpiar(class_names[i])
+
+        st.write(nombre)
+
+        st.progress(float(prob))
+
+        st.caption(f"{float(prob):.2%}")
