@@ -1,113 +1,89 @@
 import streamlit as st
-import numpy as np
-from PIL import Image, ImageOps
 from keras.models import load_model
+from PIL import Image, ImageOps
+import numpy as np
 import platform
 import os
+import io
+
+# Evita notación científica en numpy
+np.set_printoptions(suppress=True)
 
 st.set_page_config(
-    page_title="Reconocimiento de Imágenes",
+    page_title="Clasificador de Imágenes",
     page_icon="📷",
     layout="wide"
 )
 
-# ---------------------------
-# Estilos suaves
-# ---------------------------
+# Mejora visual ligera
 st.markdown("""
 <style>
-.main-title {
-    font-size: 2.2rem;
-    font-weight: 700;
-    margin-bottom: 0.2rem;
-}
-.subtext {
-    color: #6b7280;
-    margin-bottom: 1rem;
-}
-.result-box {
-    padding: 14px;
-    border-radius: 14px;
-    border: 1px solid rgba(255,255,255,0.10);
-    background: rgba(255,255,255,0.03);
-}
+    .title {
+        font-size: 2.1rem;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+    }
+    .subtitle {
+        color: #6b7280;
+        margin-bottom: 1rem;
+    }
+    .box {
+        padding: 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background-color: rgba(255,255,255,0.03);
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------
-# Cargar modelo
-# ---------------------------
 @st.cache_resource
 def cargar_modelo():
-    return load_model("keras_model.h5", compile=False)
+    return load_model("keras_Model.h5", compile=False)
 
-# ---------------------------
-# Cargar etiquetas
-# ---------------------------
-def cargar_etiquetas(ruta="labels.txt"):
-    if os.path.exists(ruta):
-        with open(ruta, "r", encoding="utf-8") as f:
-            etiquetas = [line.strip() for line in f.readlines()]
-        return etiquetas
-    return None
+@st.cache_data
+def cargar_etiquetas():
+    with open("labels.txt", "r", encoding="utf-8") as f:
+        return f.readlines()
 
-# ---------------------------
-# Preparar imagen al estilo Teachable Machine
-# ---------------------------
-def preparar_imagen(img_pil):
+def preparar_imagen(imagen):
     size = (224, 224)
+    imagen = imagen.convert("RGB")
+    imagen = ImageOps.fit(imagen, size, Image.Resampling.LANCZOS)
 
-    # Convierte a RGB por seguridad
-    img_pil = img_pil.convert("RGB")
-
-    # Teachable Machine suele funcionar mejor con contain + fondo
-    image = ImageOps.fit(img_pil, size, Image.Resampling.LANCZOS)
-
-    image_array = np.asarray(image).astype(np.float32)
-
-    # Normalización típica de Teachable Machine
-    normalized_image_array = (image_array / 127.5) - 1
+    image_array = np.asarray(imagen)
+    normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
 
     data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
     data[0] = normalized_image_array
 
-    return image, data
+    return imagen, data
 
-# ---------------------------
-# Predicción
-# ---------------------------
-def predecir(modelo, data):
-    prediction = modelo.predict(data, verbose=0)
-    return prediction[0]
+def limpiar_nombre_clase(texto):
+    texto = texto.strip()
+    if len(texto) > 2 and texto[0].isdigit() and texto[1] == " ":
+        return texto[2:]
+    return texto
 
-# ---------------------------
-# App
-# ---------------------------
-st.markdown('<div class="main-title">Reconocimiento de Imágenes con Teachable Machine</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">Reconocimiento de Imágenes con Teachable Machine</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtext">Usa tu modelo exportado desde Teachable Machine en formato Keras para clasificar imágenes desde cámara o archivo.</div>',
+    '<div class="subtitle">Clasifica imágenes usando un modelo exportado desde Teachable Machine.</div>',
     unsafe_allow_html=True
 )
 
 st.write("Versión de Python:", platform.python_version())
 
-modelo = cargar_modelo()
-etiquetas = cargar_etiquetas()
+try:
+    model = cargar_modelo()
+    class_names = cargar_etiquetas()
+except Exception as e:
+    st.error(f"Error cargando el modelo o las etiquetas: {e}")
+    st.stop()
 
 with st.sidebar:
-    st.subheader("Configuración")
-    fuente = st.radio("Selecciona la fuente", ["Cámara", "Subir imagen"])
-
+    st.subheader("Opciones")
+    fuente = st.radio("Selecciona la fuente de imagen", ["Cámara", "Subir imagen"])
     st.markdown("---")
-    st.subheader("Información")
-    if etiquetas:
-        st.success(f"Se cargaron {len(etiquetas)} clases desde labels.txt")
-    else:
-        st.warning("No se encontró labels.txt. Se mostrarán nombres genéricos.")
-
-# Imagen de ejemplo opcional
-if os.path.exists("OIG5.jpg"):
-    st.image("OIG5.jpg", width=280, caption="Imagen de referencia")
+    st.info("Esta app usa el modelo exportado desde Teachable Machine en formato Keras.")
 
 archivo = None
 
@@ -117,68 +93,56 @@ else:
     archivo = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png", "webp"])
 
 if archivo is not None:
-    img = Image.open(archivo)
+    try:
+        imagen_original = Image.open(archivo)
+        imagen_procesada, data = preparar_imagen(imagen_original)
 
-    imagen_preparada, data = preparar_imagen(img)
-    probabilidades = predecir(modelo, data)
+        prediction = model.predict(data, verbose=0)
+        index = np.argmax(prediction)
+        class_name = limpiar_nombre_clase(class_names[index])
+        confidence_score = float(prediction[0][index])
 
-    indice_ganador = int(np.argmax(probabilidades))
-    confianza_ganadora = float(probabilidades[indice_ganador])
+        col1, col2 = st.columns(2)
 
-    if etiquetas and indice_ganador < len(etiquetas):
-        clase_ganadora = etiquetas[indice_ganador]
-    else:
-        clase_ganadora = f"Clase {indice_ganador}"
+        with col1:
+            st.subheader("Imagen original")
+            st.image(imagen_original, use_container_width=True)
 
-    col1, col2 = st.columns(2)
+        with col2:
+            st.subheader("Imagen procesada para el modelo")
+            st.image(imagen_procesada, use_container_width=True)
 
-    with col1:
-        st.subheader("Imagen original")
-        st.image(img, use_container_width=True)
+        st.subheader("Resultado principal")
+        st.markdown(
+            f"""
+            <div class="box">
+                <h3 style="margin-top:0;">Clase detectada: {class_name}</h3>
+                <p style="font-size:1.1rem;">Confianza: <strong>{confidence_score:.2%}</strong></p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-    with col2:
-        st.subheader("Imagen procesada")
-        st.image(imagen_preparada, use_container_width=True)
+        # Nuevo agregado útil: Top 3 predicciones
+        st.subheader("Top 3 predicciones")
+        predicciones = prediction[0]
+        top_indices = np.argsort(predicciones)[::-1][:3]
 
-    st.markdown("### Resultado principal")
-    st.markdown(
-        f"""
-        <div class="result-box">
-            <h3 style="margin-top:0;">Clase detectada: {clase_ganadora}</h3>
-            <p style="font-size:1.1rem;">Probabilidad: <strong>{confianza_ganadora:.2%}</strong></p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        for i in top_indices:
+            nombre = limpiar_nombre_clase(class_names[i])
+            prob = float(predicciones[i])
+            st.write(f"**{nombre}**")
+            st.progress(min(max(prob, 0.0), 1.0))
+            st.caption(f"{prob:.2%}")
 
-    st.markdown("### Probabilidades por clase")
+        # Agregado extra útil: tabla completa de resultados
+        with st.expander("Ver todas las clases"):
+            for i, prob in enumerate(predicciones):
+                nombre = limpiar_nombre_clase(class_names[i])
+                st.write(f"{nombre}: {float(prob):.4f}")
 
-    resultados = []
-    for i, prob in enumerate(probabilidades):
-        if etiquetas and i < len(etiquetas):
-            nombre_clase = etiquetas[i]
-        else:
-            nombre_clase = f"Clase {i}"
+    except Exception as e:
+        st.error(f"Error procesando la imagen: {e}")
 
-        # Si labels.txt viene como "0 Izquierda", limpiamos un poco opcionalmente
-        resultados.append({
-            "Clase": nombre_clase,
-            "Probabilidad": float(prob)
-        })
-
-    resultados = sorted(resultados, key=lambda x: x["Probabilidad"], reverse=True)
-
-    for r in resultados:
-        st.write(f"**{r['Clase']}**")
-        st.progress(min(max(r["Probabilidad"], 0.0), 1.0))
-        st.caption(f"{r['Probabilidad']:.2%}")
-
-    # Si quieres seguir la lógica vieja del profesor con umbral > 0.5
-    st.markdown("### Interpretación rápida")
-    detectadas = [r for r in resultados if r["Probabilidad"] > 0.5]
-
-    if detectadas:
-        for r in detectadas:
-            st.success(f"{r['Clase']} detectada con probabilidad de {r['Probabilidad']:.2%}")
-    else:
-        st.info("Ninguna clase superó el umbral de 50%.")
+else:
+    st.caption("Toma una foto o sube una imagen para comenzar.")
